@@ -1,0 +1,101 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    x:Class="AlertaPulsera.MainPage"
+    Title="Alerta Pulsera">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="25" Spacing="15">
+
+            <Label
+                Text="Alerta Pulsera"
+                FontSize="30"
+                HorizontalOptions="Center" />
+
+            <Label
+                Text="Frecuencia cardíaca"
+                FontSize="22" />
+
+            <Label
+                x:Name="PulsosLabel"
+                Text="-- BPM"
+                FontSize="40"
+                HorizontalOptions="Center" />
+
+            <Label
+                x:Name="EstadoPulsosLabel"
+                Text="Esperando lectura de la pulsera..."
+                HorizontalTextAlignment="Center" />
+
+            <Label
+                Text="Buscar pulsera"
+                FontSize="22" />
+
+            <Button
+                x:Name="BuscarBluetoothButton"
+                Text="Buscar dispositivos Bluetooth"
+                Clicked="OnBuscarBluetoothClicked" />
+
+            <Label
+                x:Name="EstadoBluetoothLabel"
+                Text="Sin búsqueda iniciada." />
+
+            <VerticalStackLayout
+                x:Name="DispositivosLayout"
+                Spacing="10" />
+
+            <BoxView HeightRequest="1" Color="Gray" />
+
+            <Label
+                Text="Wi-Fi de la pulsera"
+                FontSize="22" />
+
+            <Entry
+                x:Name="WifiNombreEntry"
+                Placeholder="Nombre de la red Wi-Fi"
+                MaxLength="32" />
+
+            <Entry
+                x:Name="WifiClaveEntry"
+                Placeholder="Contraseña del Wi-Fi"
+                IsPassword="True" />
+
+            <Button
+                Text="Enviar configuración Wi-Fi"
+                IsEnabled="False" />
+
+            <Label
+                Text="Envío pendiente de integrar con el programa de la ESP32."
+                FontSize="14" />
+
+            <BoxView HeightRequest="1" Color="Gray" />
+
+            <Label
+                Text="Notificaciones"
+                FontSize="22" />
+
+            <Label
+                x:Name="EstadoLabel"
+                Text="Configura las notificaciones para recibir alertas."
+                FontSize="18" />
+
+            <Button
+                Text="Activar notificaciones - PRUEBA 2"
+                Clicked="OnActivarClicked" />
+
+            <Label Text="Token de este dispositivo:" />
+
+            <Editor
+                x:Name="TokenEditor"
+                IsReadOnly="True"
+                HeightRequest="180"
+                Placeholder="Aquí aparecerá el token de Firebase" />
+
+            <Button
+                Text="Copiar token"
+                Clicked="OnCopiarClicked" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

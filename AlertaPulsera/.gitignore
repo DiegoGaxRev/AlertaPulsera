@@ -1,0 +1,34 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Compilación .NET
+[Bb]in/
+[Oo]bj/
+
+# Paquetes generados de Android
+*.apk
+*.aab
+
+# Claves de firma
+*.keystore
+*.jks
+*.pfx
+
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.Development.json
+
+# Cuentas de servicio Firebase
+*firebase-adminsdk*.json
+
+# Configuración local de Firebase para esta demo
+google-services.json
+GoogleService-Info.plist
+
+# Registros
+*.log
