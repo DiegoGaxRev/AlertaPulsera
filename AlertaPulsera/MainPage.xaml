@@ -1,55 +1,98 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
+
 <ContentPage
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     x:Class="AlertaPulsera.MainPage"
-    Title="Alerta Pulsera">
+    Title="AlertaPulsera">
 
     <ScrollView>
-        <VerticalStackLayout Padding="25" Spacing="15">
+
+        <VerticalStackLayout
+            Padding="20"
+            Spacing="15">
 
             <Label
-                Text="Alerta Pulsera"
-                FontSize="30"
+                Text="AlertaPulsera"
+                FontSize="28"
+                FontAttributes="Bold"
                 HorizontalOptions="Center" />
+
+            <!-- PULSOS -->
 
             <Label
                 Text="Frecuencia cardíaca"
-                FontSize="22" />
+                FontSize="20"
+                FontAttributes="Bold" />
 
             <Label
                 x:Name="PulsosLabel"
                 Text="-- BPM"
-                FontSize="40"
+                FontSize="42"
                 HorizontalOptions="Center" />
 
             <Label
                 x:Name="EstadoPulsosLabel"
                 Text="Esperando lectura de la pulsera..."
+                FontSize="14"
                 HorizontalTextAlignment="Center" />
 
+            <BoxView
+                HeightRequest="1"
+                Color="Gray" />
+
+            <!-- NOTIFICACIONES -->
+
             <Label
-                Text="Buscar pulsera"
-                FontSize="22" />
+                Text="Notificaciones"
+                FontSize="20"
+                FontAttributes="Bold" />
+
+            <Button
+                Text="Activar notificaciones"
+                Clicked="OnActivarClicked" />
+
+            <Label
+                x:Name="EstadoLabel"
+                Text="Activa las notificaciones para registrar este celular."
+                FontSize="14" />
+
+   
+            <BoxView
+                HeightRequest="1"
+                Color="Gray" />
+
+            <!-- BLUETOOTH -->
+
+            <Label
+                Text="Conexión Bluetooth"
+                FontSize="20"
+                FontAttributes="Bold" />
 
             <Button
                 x:Name="BuscarBluetoothButton"
-                Text="Buscar dispositivos Bluetooth"
+                Text="Buscar pulsera"
                 Clicked="OnBuscarBluetoothClicked" />
 
             <Label
                 x:Name="EstadoBluetoothLabel"
-                Text="Sin búsqueda iniciada." />
+                Text="Busca y conecta tu pulsera."
+                FontSize="14" />
 
             <VerticalStackLayout
                 x:Name="DispositivosLayout"
                 Spacing="10" />
 
-            <BoxView HeightRequest="1" Color="Gray" />
+            <BoxView
+                HeightRequest="1"
+                Color="Gray" />
+
+            <!-- CONFIGURACIÓN WI-FI -->
 
             <Label
-                Text="Wi-Fi de la pulsera"
-                FontSize="22" />
+                Text="Configurar Wi-Fi de la pulsera"
+                FontSize="20"
+                FontAttributes="Bold" />
 
             <Entry
                 x:Name="WifiNombreEntry"
@@ -62,40 +105,18 @@
                 IsPassword="True" />
 
             <Button
+                x:Name="EnviarWifiButton"
                 Text="Enviar configuración Wi-Fi"
+                Clicked="OnEnviarWifiClicked"
                 IsEnabled="False" />
 
             <Label
-                Text="Envío pendiente de integrar con el programa de la ESP32."
+                x:Name="EstadoWifiLabel"
+                Text="Conecta primero la pulsera por Bluetooth."
                 FontSize="14" />
 
-            <BoxView HeightRequest="1" Color="Gray" />
-
-            <Label
-                Text="Notificaciones"
-                FontSize="22" />
-
-            <Label
-                x:Name="EstadoLabel"
-                Text="Configura las notificaciones para recibir alertas."
-                FontSize="18" />
-
-            <Button
-                Text="Activar notificaciones - PRUEBA 2"
-                Clicked="OnActivarClicked" />
-
-            <Label Text="Token de este dispositivo:" />
-
-            <Editor
-                x:Name="TokenEditor"
-                IsReadOnly="True"
-                HeightRequest="180"
-                Placeholder="Aquí aparecerá el token de Firebase" />
-
-            <Button
-                Text="Copiar token"
-                Clicked="OnCopiarClicked" />
-
         </VerticalStackLayout>
+
     </ScrollView>
+
 </ContentPage>

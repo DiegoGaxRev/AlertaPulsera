@@ -1,13 +1,5 @@
-﻿using Plugin.BLE;
-using Plugin.BLE.Abstractions;
-using Plugin.BLE.Abstractions.Contracts;
-using Plugin.BLE.Abstractions.EventArgs;
-using Plugin.Firebase.CloudMessaging;
-using Plugin.Firebase.Auth;
-using Plugin.Firebase.Firestore;
-using MQTTnet;
-using MQTTnet.Client;
-using System.Globalization;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -16,14 +8,50 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Storage;
+
+using Plugin.BLE;
+using Plugin.BLE.Abstractions;
+using Plugin.BLE.Abstractions.Contracts;
+using Plugin.BLE.Abstractions.EventArgs;
+
+using Plugin.Firebase.Auth;
+using Plugin.Firebase.CloudMessaging;
+using Plugin.Firebase.Firestore;
 
 namespace AlertaPulsera;
+
 public partial class MainPage : ContentPage
 {
+    // ==========================
+    // BLUETOOTH
+    // ==========================
+
     private IAdapter? _adapter;
+    private IDevice? _pulseraConectada;
+
     private readonly HashSet<Guid> _dispositivosVistos = new();
+
     private bool _buscando;
     private bool _paginaVisible;
+    private bool _operacionBle;
+
+    private int _mtuBle = 23;
+
+    private static readonly Guid ServicioWifiUuid =
+        Guid.Parse("6f8f1c70-3a90-4f5b-8a72-001000000001");
+
+    private static readonly Guid SsidUuid =
+        Guid.Parse("6f8f1c70-3a90-4f5b-8a72-001000000011");
+
+    private static readonly Guid ClaveWifiUuid =
+        Guid.Parse("6f8f1c70-3a90-4f5b-8a72-001000000012");
+
+    // ==========================
+    // PULSOS / FIREBASE
+    // ==========================
 
     private CancellationTokenSource? _cancelacionPulsos;
 
@@ -35,6 +63,7 @@ public partial class MainPage : ContentPage
     private const string UrlBpm =
         "https://alertapulserapro-default-rtdb.firebaseio.com/" +
         "pulsera/estado/bpm.json";
+
     public MainPage()
     {
         InitializeComponent();
@@ -45,6 +74,10 @@ public partial class MainPage : ContentPage
         base.OnAppearing();
 
         _paginaVisible = true;
+
+        EnviarWifiButton.IsEnabled =
+            !_operacionBle &&
+            _pulseraConectada?.State == DeviceState.Connected;
 
         if (_cancelacionPulsos != null)
             return;
@@ -59,6 +92,7 @@ public partial class MainPage : ContentPage
     protected override async void OnDisappearing()
     {
         _paginaVisible = false;
+        _buscando = false;
 
         var cancelacion = _cancelacionPulsos;
         _cancelacionPulsos = null;
@@ -79,15 +113,22 @@ public partial class MainPage : ContentPage
             System.Diagnostics.Debug.WriteLine(ex);
         }
     }
+
+    // ==========================
+    // BUSCAR BLUETOOTH
+    // ==========================
+
     private async void OnBuscarBluetoothClicked(
         object sender,
         EventArgs e)
     {
-        if (_buscando)
+        if (_buscando || _operacionBle)
             return;
 
         _buscando = true;
+
         BuscarBluetoothButton.IsEnabled = false;
+        EnviarWifiButton.IsEnabled = false;
 
         try
         {
@@ -101,6 +142,7 @@ public partial class MainPage : ContentPage
                 EstadoBluetoothLabel.Text =
                     "Debes permitir el acceso a dispositivos cercanos " +
                     "o ubicación, según tu versión de Android.";
+
                 return;
             }
 
@@ -111,6 +153,7 @@ public partial class MainPage : ContentPage
                 EstadoBluetoothLabel.Text =
                     "Bluetooth no disponible o apagado. " +
                     "Actívalo en los ajustes del celular.";
+
                 return;
             }
 
@@ -120,6 +163,7 @@ public partial class MainPage : ContentPage
             _dispositivosVistos.Clear();
             DispositivosLayout.Children.Clear();
 
+            _adapter.DeviceDiscovered -= OnDispositivoEncontrado;
             _adapter.DeviceDiscovered += OnDispositivoEncontrado;
 
             EstadoBluetoothLabel.Text =
@@ -127,7 +171,7 @@ public partial class MainPage : ContentPage
 
             await _adapter.StartScanningForDevicesAsync();
 
-            if (_paginaVisible)
+            if (_paginaVisible && !_operacionBle)
             {
                 EstadoBluetoothLabel.Text =
                     $"Búsqueda terminada: " +
@@ -136,7 +180,8 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            EstadoBluetoothLabel.Text = "No se pudo buscar Bluetooth.";
+            EstadoBluetoothLabel.Text =
+                "No se pudo buscar Bluetooth.";
 
             await DisplayAlert(
                 "Bluetooth",
@@ -151,7 +196,12 @@ public partial class MainPage : ContentPage
             }
 
             _buscando = false;
-            BuscarBluetoothButton.IsEnabled = true;
+
+            BuscarBluetoothButton.IsEnabled = !_operacionBle;
+
+            EnviarWifiButton.IsEnabled =
+                !_operacionBle &&
+                _pulseraConectada?.State == DeviceState.Connected;
         }
     }
 
@@ -163,28 +213,330 @@ public partial class MainPage : ContentPage
 
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            if (!_paginaVisible || !_buscando)
+            if (!_paginaVisible || !_buscando || _operacionBle)
                 return;
 
             if (!_dispositivosVistos.Add(dispositivo.Id))
                 return;
 
-            string nombre = string.IsNullOrWhiteSpace(dispositivo.Name)
-                ? "Dispositivo sin nombre"
-                : dispositivo.Name;
+            string nombre =
+                string.IsNullOrWhiteSpace(dispositivo.Name)
+                    ? "Dispositivo sin nombre"
+                    : dispositivo.Name;
 
-            DispositivosLayout.Children.Add(new Label
+            var informacion = new Label
             {
                 Text = $"{nombre}\n" +
                        $"ID: {dispositivo.Id}\n" +
                        $"Señal: {dispositivo.Rssi} dBm",
-                FontSize = 14,
+                FontSize = 14
+            };
+
+            var botonConectar = new Button
+            {
+                Text = "Conectar"
+            };
+
+            botonConectar.Clicked += async (_, _) =>
+            {
+                if (_operacionBle)
+                    return;
+
+                botonConectar.IsEnabled = false;
+
+                try
+                {
+                    await ConectarPulseraAsync(dispositivo);
+                }
+                finally
+                {
+                    botonConectar.IsEnabled = true;
+                }
+            };
+
+            var tarjeta = new VerticalStackLayout
+            {
+                Spacing = 5,
                 Margin = new Thickness(0, 5)
-            });
+            };
+
+            tarjeta.Children.Add(informacion);
+            tarjeta.Children.Add(botonConectar);
+
+            DispositivosLayout.Children.Add(tarjeta);
         });
     }
 
-    private async void OnActivarClicked(object sender, EventArgs e)
+    // ==========================
+    // CONECTAR PULSERA
+    // ==========================
+
+    private async Task ConectarPulseraAsync(IDevice dispositivo)
+    {
+        if (_operacionBle)
+            return;
+
+        _operacionBle = true;
+
+        BuscarBluetoothButton.IsEnabled = false;
+        EnviarWifiButton.IsEnabled = false;
+
+        try
+        {
+            _adapter ??= CrossBluetoothLE.Current.Adapter;
+
+            _buscando = false;
+
+            if (_adapter.IsScanning)
+            {
+                await _adapter.StopScanningForDevicesAsync();
+            }
+
+            EstadoBluetoothLabel.Text =
+                "Conectando a la pulsera...";
+
+            EstadoWifiLabel.Text =
+                "Verificando servicio de configuración...";
+
+            if (_pulseraConectada != null &&
+                _pulseraConectada.Id != dispositivo.Id &&
+                _pulseraConectada.State == DeviceState.Connected)
+            {
+                await _adapter.DisconnectDeviceAsync(
+                    _pulseraConectada);
+            }
+
+            _pulseraConectada = null;
+
+            if (dispositivo.State != DeviceState.Connected)
+            {
+                await _adapter.ConnectToDeviceAsync(dispositivo);
+            }
+
+            var servicio = await dispositivo.GetServiceAsync(
+                ServicioWifiUuid);
+
+            if (servicio == null)
+            {
+                throw new InvalidOperationException(
+                    "Este dispositivo no tiene el servicio " +
+                    "Bluetooth de tu pulsera.");
+            }
+
+            var ssid = await servicio.GetCharacteristicAsync(
+                SsidUuid);
+
+            var clave = await servicio.GetCharacteristicAsync(
+                ClaveWifiUuid);
+
+            if (ssid == null || clave == null)
+            {
+                throw new InvalidOperationException(
+                    "No se encontraron las características " +
+                    "de nombre y contraseña Wi-Fi.");
+            }
+
+            if (!ssid.CanWrite || !clave.CanWrite)
+            {
+                throw new InvalidOperationException(
+                    "Las características Wi-Fi no permiten escritura. " +
+                    "Revisa el programa de la ESP32.");
+            }
+
+            _mtuBle = 23;
+
+            try
+            {
+                int mtu = await dispositivo.RequestMtuAsync(185);
+
+                if (mtu >= 23)
+                {
+                    _mtuBle = mtu;
+                }
+            }
+            catch
+            {
+                _mtuBle = 23;
+            }
+
+            _pulseraConectada = dispositivo;
+
+            EstadoBluetoothLabel.Text =
+                "Pulsera conectada por Bluetooth.";
+
+            EstadoWifiLabel.Text =
+                "Escribe el nombre y la contraseña del Wi-Fi.";
+
+            EnviarWifiButton.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            _pulseraConectada = null;
+
+            try
+            {
+                if (dispositivo.State == DeviceState.Connected)
+                {
+                    await _adapter!
+                        .DisconnectDeviceAsync(dispositivo);
+                }
+            }
+            catch
+            {
+                // Conservar el error original.
+            }
+
+            EstadoBluetoothLabel.Text =
+                "No se pudo conectar la pulsera.";
+
+            EstadoWifiLabel.Text =
+                "Conecta la pulsera antes de enviar el Wi-Fi.";
+
+            await DisplayAlert(
+                "Bluetooth",
+                ex.Message,
+                "Aceptar");
+        }
+        finally
+        {
+            _operacionBle = false;
+
+            BuscarBluetoothButton.IsEnabled = true;
+        }
+    }
+
+    // ==========================
+    // ENVIAR DATOS WI-FI
+    // ==========================
+
+    private async void OnEnviarWifiClicked(
+        object sender,
+        EventArgs e)
+    {
+        if (_operacionBle || _buscando)
+            return;
+
+        var dispositivo = _pulseraConectada;
+
+        if (dispositivo == null ||
+            dispositivo.State != DeviceState.Connected)
+        {
+            EnviarWifiButton.IsEnabled = false;
+
+            EstadoWifiLabel.Text =
+                "La pulsera no está conectada. " +
+                "Búscala y vuelve a conectarte.";
+
+            return;
+        }
+
+        // Los espacios pueden formar parte del nombre o contraseña.
+        string ssid = WifiNombreEntry.Text ?? "";
+        string clave = WifiClaveEntry.Text ?? "";
+
+        byte[] bytesSsid = Encoding.UTF8.GetBytes(ssid);
+        byte[] bytesClave = Encoding.UTF8.GetBytes(clave);
+
+        if (bytesSsid.Length == 0 || bytesSsid.Length > 32)
+        {
+            await DisplayAlert(
+                "Wi-Fi",
+                "El nombre de la red debe ocupar entre 1 y 32 bytes.",
+                "Aceptar");
+
+            return;
+        }
+
+        int maximoEscritura = Math.Min(_mtuBle - 3, 512);
+
+        if (bytesSsid.Length > maximoEscritura ||
+            bytesClave.Length > maximoEscritura)
+        {
+            await DisplayAlert(
+                "Bluetooth",
+                $"La conexión permite {maximoEscritura} bytes " +
+                "por escritura y uno de los datos supera ese tamaño. " +
+                "No se enviará cortado. Hay que ajustar el MTU " +
+                "o el protocolo de recepción de la ESP32.",
+                "Aceptar");
+
+            return;
+        }
+
+        _operacionBle = true;
+
+        EnviarWifiButton.IsEnabled = false;
+        BuscarBluetoothButton.IsEnabled = false;
+
+        try
+        {
+            EstadoWifiLabel.Text =
+                "Enviando nombre de la red...";
+
+            var servicio = await dispositivo.GetServiceAsync(
+                ServicioWifiUuid);
+
+            if (servicio == null)
+            {
+                throw new InvalidOperationException(
+                    "No se encontró el servicio Bluetooth.");
+            }
+
+            var caracteristicaSsid =
+                await servicio.GetCharacteristicAsync(SsidUuid);
+
+            var caracteristicaClave =
+                await servicio.GetCharacteristicAsync(ClaveWifiUuid);
+
+            if (caracteristicaSsid == null ||
+                caracteristicaClave == null ||
+                !caracteristicaSsid.CanWrite ||
+                !caracteristicaClave.CanWrite)
+            {
+                throw new InvalidOperationException(
+                    "No se puede escribir la configuración Wi-Fi " +
+                    "en esta pulsera.");
+            }
+
+            await caracteristicaSsid.WriteAsync(bytesSsid);
+
+            EstadoWifiLabel.Text =
+                "Enviando contraseña...";
+
+            await caracteristicaClave.WriteAsync(bytesClave);
+
+            EstadoWifiLabel.Text =
+                "Escrituras Bluetooth completadas. ";
+        }
+        catch (Exception ex)
+        {
+            EstadoWifiLabel.Text =
+                "No se completó el envío. " +
+                "Vuelve a enviar ambos datos.";
+
+            await DisplayAlert(
+                "Configuración Wi-Fi",
+                ex.Message,
+                "Aceptar");
+        }
+        finally
+        {
+            _operacionBle = false;
+
+            BuscarBluetoothButton.IsEnabled = true;
+
+            EnviarWifiButton.IsEnabled =
+                _pulseraConectada?.State == DeviceState.Connected;
+        }
+    }
+
+    // ==========================
+    // REGISTRAR NOTIFICACIONES
+    // ==========================
+
+    private async void OnActivarClicked(
+    object sender,
+    EventArgs e)
     {
         if (sender is Button boton)
             boton.IsEnabled = false;
@@ -203,6 +555,7 @@ public partial class MainPage : ContentPage
                 {
                     EstadoLabel.Text =
                         "Debes permitir las notificaciones.";
+
                     return;
                 }
             }
@@ -235,9 +588,8 @@ public partial class MainPage : ContentPage
                     "Firebase no devolvió un token.");
             }
 
-            TokenEditor.Text = token;
-
-            const string claveInstalacion = "pulsera_instalacion_id";
+            const string claveInstalacion =
+                "pulsera_instalacion_id";
 
             var instalacionId = Preferences.Default.Get(
                 claveInstalacion,
@@ -252,14 +604,18 @@ public partial class MainPage : ContentPage
                     instalacionId);
             }
 
-            EstadoLabel.Text = "Guardando token en Firebase...";
+            EstadoLabel.Text =
+                "Guardando registro de notificaciones...";
 
             var datos = new Dictionary<object, object>
-{
-    { "token", token },
-    { "plataforma", "android" },
-    { "actualizadoUtc", DateTime.UtcNow.ToString("O") }
-};
+        {
+            { "token", token },
+            { "plataforma", "android" },
+            {
+                "actualizadoUtc",
+                DateTime.UtcNow.ToString("O")
+            }
+        };
 
             var ruta =
                 $"usuarios/{usuario.Uid}/dispositivos/{instalacionId}";
@@ -268,20 +624,18 @@ public partial class MainPage : ContentPage
                 .GetDocument(ruta)
                 .SetDataAsync(datos);
 
-            EstadoLabel.Text = "Token registrado correctamente.";
-
-            await DisplayAlert(
-                "Registro ejecutado",
-                $"Revisa esta ruta en Firestore:\n\n{ruta}",
-                "Aceptar");
+            EstadoLabel.Text =
+                "Notificaciones activadas correctamente.";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            EstadoLabel.Text = "No se pudo registrar el token.";
+            EstadoLabel.Text =
+                "No se pudieron activar las notificaciones.";
 
             await DisplayAlert(
-                "Configuración",
-                ex.Message,
+                "Notificaciones",
+                "No se pudo completar el registro. " +
+                "Intenta de nuevo.",
                 "Aceptar");
         }
         finally
@@ -291,20 +645,12 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async void OnCopiarClicked(object sender, EventArgs e)
-    {
-        if (!string.IsNullOrWhiteSpace(TokenEditor.Text))
-        {
-            await Clipboard.Default.SetTextAsync(TokenEditor.Text);
+    // ==========================
+    // ESCUCHA DE PULSOS
+    // ==========================
 
-            await DisplayAlert(
-                "Listo",
-                "Token copiado.",
-                "Aceptar");
-        }
-    }
     private bool EsEscuchaActual(
-    CancellationTokenSource cancelacion)
+        CancellationTokenSource cancelacion)
     {
         return _paginaVisible &&
                ReferenceEquals(
@@ -349,7 +695,6 @@ public partial class MainPage : ContentPage
                         "Conectando a pulsos...");
 
                     var auth = CrossFirebaseAuth.Current;
-
                     var usuario = auth.CurrentUser;
 
                     if (usuario == null)
@@ -366,9 +711,10 @@ public partial class MainPage : ContentPage
                             "No se pudo iniciar sesión en Firebase.");
                     }
 
-                    // Token de autenticación de Firebase.
-                    // No es el token FCM de notificaciones.
-                    var resultadoToken = await usuario.GetIdTokenResultAsync();
+                    // Token de autenticación, no el token FCM.
+                    var resultadoToken =
+                        await usuario.GetIdTokenResultAsync();
+
                     var token = resultadoToken.Token;
 
                     ct.ThrowIfCancellationRequested();
@@ -452,14 +798,14 @@ public partial class MainPage : ContentPage
                         }
 
                         if (linea.StartsWith(
-                                "event:",
-                                StringComparison.Ordinal))
+                            "event:",
+                            StringComparison.Ordinal))
                         {
                             evento = linea[6..].Trim();
                         }
                         else if (linea.StartsWith(
-                                     "data:",
-                                     StringComparison.Ordinal))
+                            "data:",
+                            StringComparison.Ordinal))
                         {
                             if (datos.Length > 0)
                             {
@@ -478,7 +824,7 @@ public partial class MainPage : ContentPage
                 }
                 catch (Exception ex)
                 {
-                    // No registrar la URL: contiene el token de sesión.
+                    // No registrar la URL: contiene el token.
                     System.Diagnostics.Debug.WriteLine(
                         $"[PULSOS] {ex.GetType().Name}");
 
@@ -544,6 +890,5 @@ public partial class MainPage : ContentPage
             $"{bpm:0.#} BPM",
             string.Empty);
     }
-
 
 }
